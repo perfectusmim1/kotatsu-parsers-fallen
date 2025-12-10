@@ -22,6 +22,8 @@ internal class AzoraMoon(context: MangaLoaderContext) :
 	private var lastRequestTime = 0L
 	private val minRequestInterval = 1200L // Increased to 1.2 seconds for heavy rate limiting
 
+    override val withoutAjax = true
+
 	// Rate limiting helper
 	private suspend fun rateLimit() {
 		val currentTime = System.currentTimeMillis()
