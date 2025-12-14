@@ -13,7 +13,6 @@ import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import org.json.JSONArray
 import org.koitharu.kotatsu.parsers.Broken
 
-@Broken
 @MangaSourceParser("VORTEXSCANS", "VortexScans", "en")
 internal class VortexScans(context: MangaLoaderContext) :
 	IkenParser(context, MangaParserSource.VORTEXSCANS, "vortexscans.org", 18, true) {
