@@ -369,8 +369,8 @@ internal abstract class WeebDexParser(
             }
         }
 
-        // Sort by chapter number (descending) - newest first
-        return chapters.sortedByDescending { it.number }
+        // Sort by chapter number (descending) - highest chapter first
+        return chapters.sortedByDescending { it.number }.reversed()
     }
 
     private data class ChapterData(
@@ -408,6 +408,11 @@ internal abstract class WeebDexParser(
                 source = source
             )
         }
+    }
+
+    override suspend fun getRelatedManga(seed: Manga): List<Manga> {
+        // Disable related/suggested manga feature
+        return emptyList()
     }
 
     @MangaSourceParser("WEEBDEX_EN", "WeebDex (English)", "en")
