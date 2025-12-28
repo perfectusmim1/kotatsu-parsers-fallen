@@ -216,6 +216,11 @@ internal class Kagane(context: MangaLoaderContext) :
         )
     }
 
+    override suspend fun getRelatedManga(seed: Manga): List<Manga> {
+        // Disable related/suggested manga feature
+        return emptyList()
+    }
+    
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val uri = URI(chapter.url)
         val pathParts = uri.path.split("/").filter { it.isNotEmpty() }
