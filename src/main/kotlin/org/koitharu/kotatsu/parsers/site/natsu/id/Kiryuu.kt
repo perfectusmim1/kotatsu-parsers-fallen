@@ -80,7 +80,6 @@ internal class Kiryuu(context: MangaLoaderContext) :
             ?.takeIf { it.isNotBlank() }
             ?: throw Exception("Failed to extract chapter data from WebView")
 
-        // Unquote and unescape the JSON string if needed
         val jsonString = if (rawResult.startsWith("\"") && rawResult.endsWith("\"")) {
             rawResult.substring(1, rawResult.length - 1)
                 .replace("\\\"", "\"")
