@@ -378,7 +378,7 @@ internal class Azoramoon(context: MangaLoaderContext) :
 				branch = null,
 				source = source,
 			)
-		}
+		}.reversed()
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {

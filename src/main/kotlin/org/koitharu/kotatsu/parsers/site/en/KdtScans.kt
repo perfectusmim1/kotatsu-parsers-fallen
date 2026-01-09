@@ -1,8 +1,5 @@
 package org.koitharu.kotatsu.parsers.site.en
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -36,6 +33,7 @@ import org.koitharu.kotatsu.parsers.util.textOrNull
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import org.koitharu.kotatsu.parsers.util.toTitleCase
 import org.koitharu.kotatsu.parsers.util.urlEncoded
+import org.koitharu.kotatsu.parsers.webview.InterceptionConfig
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 
@@ -233,184 +231,36 @@ internal class KdtScans(context: MangaLoaderContext) :
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val fullUrl = chapter.url.toAbsoluteUrl(domain)
-        val doc = webClient.httpGet(fullUrl).parseHtml()
 
-        // Check all script tags
-        val allScripts = doc.select("script")
-        println("[KdtScans] Found ${allScripts.size} script tags total")
+        // JavaScript to wait 3 seconds before finishing
+        val pageScript = """
+            setTimeout(() => {
+                console.log('[KdtScans] 3 seconds elapsed, ready to capture');
+            }, 3000);
+        """.trimIndent()
 
-        // Look for LD+JSON scripts specifically
-        val ldJsonScripts = doc.select("script[type='application/ld+json']")
-        println("[KdtScans] Found ${ldJsonScripts.size} LD+JSON script tags")
+        // Configure interception to capture all image requests from cdn.asdasdhg.com
+        val config = InterceptionConfig(
+            timeoutMs = 15000,
+            urlPattern = Regex("https://cdn\\.asdasdhg\\.com/.*\\.(webp|jpg|jpeg|png)", RegexOption.IGNORE_CASE),
+            pageScript = pageScript
+        )
 
-        // Extract LD+JSON schema
-        val ldJsonScript = doc.selectFirst("script[type='application/ld+json'].rank-math-schema")?.html()
-        if (ldJsonScript == null) {
-            println("[KdtScans] ERROR: Could not find script[type='application/ld+json'].rank-math-schema")
-            // Try without the class selector
-            val anyLdJson = doc.selectFirst("script[type='application/ld+json']")?.html()
-            if (anyLdJson == null) {
-                println("[KdtScans] ERROR: Could not find any script[type='application/ld+json']")
-                return emptyList()
-            }
-            println("[KdtScans] Found LD+JSON without class, trying to parse it")
-            return parseLdJson(anyLdJson)
+        println("[KdtScans] Loading chapter page and intercepting images from cdn.asdasdhg.com")
+        val interceptedRequests = context.interceptWebViewRequests(fullUrl, config)
+
+        println("[KdtScans] Intercepted ${interceptedRequests.size} image requests")
+
+        return interceptedRequests.map { request ->
+            val imageUrl = request.url
+            println("[KdtScans] Image: $imageUrl")
+            MangaPage(
+                id = generateUid(imageUrl),
+                url = imageUrl,
+                preview = null,
+                source = source,
+            )
         }
-
-        println("[KdtScans] Found rank-math-schema script, length: ${ldJsonScript.length}")
-        return parseLdJson(ldJsonScript)
-    }
-
-    private suspend fun parseLdJson(ldJsonScript: String): List<MangaPage> {
-        // Parse JSON to get primaryImageOfPage
-        val jsonObject = try {
-            JSONObject(ldJsonScript)
-        } catch (e: Exception) {
-            println("[KdtScans] ERROR: Failed to parse JSON: ${e.message}")
-            return emptyList()
-        }
-
-        println("[KdtScans] Parsed JSON successfully")
-        val graphArray = jsonObject.optJSONArray("@graph")
-        if (graphArray == null) {
-            println("[KdtScans] ERROR: No @graph array found in JSON")
-            return emptyList()
-        }
-
-        println("[KdtScans] Found @graph array with ${graphArray.length()} items")
-
-        var primaryImageUrl: String? = null
-        for (i in 0 until graphArray.length()) {
-            val item = graphArray.getJSONObject(i)
-            if (item.has("primaryImageOfPage")) {
-                val imageObj = item.getJSONObject("primaryImageOfPage")
-                // Try both "@id" and "url" fields
-                primaryImageUrl = imageObj.optString("@id").ifEmpty {
-                    imageObj.optString("url")
-                }
-                println("[KdtScans] Found primaryImageOfPage at index $i: $primaryImageUrl")
-                if (primaryImageUrl.isNotBlank()) break
-            }
-        }
-
-        if (primaryImageUrl.isNullOrBlank()) {
-            println("[KdtScans] ERROR: primaryImageOfPage URL is null or blank")
-            return emptyList()
-        }
-
-        println("[KdtScans] Primary image URL: $primaryImageUrl")
-
-        // Extract base path, filename, and extension from the first image URL
-        // Example: https://cdn.asdasdhg.com/Returned%20from%20Another%20World/Chapter%202.1/1.webp
-        // Example: https://cdn.asdasdhg.com/Childhood%20Friend%20and%20Girlfriend/Chapter%206/Ch%206%20Credit%20Page.webp
-        val lastSlashIndex = primaryImageUrl.lastIndexOf('/')
-        val basePath = primaryImageUrl.substring(0, lastSlashIndex + 1)
-        val fileName = primaryImageUrl.substring(lastSlashIndex + 1)
-        val extensionIndex = fileName.lastIndexOf('.')
-        val extension = fileName.substring(extensionIndex)
-        val fileNameWithoutExt = fileName.substring(0, extensionIndex)
-
-        println("[KdtScans] Base path: $basePath")
-        println("[KdtScans] File name: $fileName")
-        println("[KdtScans] Extension: $extension")
-        println("[KdtScans] File name without extension: $fileNameWithoutExt")
-
-        // Find the pattern to replace for sequential numbering
-        // Look for trailing digits or common patterns like "Page"
-        val numberPattern = Regex("""(\d+)$""")
-        val pagePattern = Regex("""(Page|page)$""", RegexOption.IGNORE_CASE)
-
-        val baseTemplate = when {
-            numberPattern.containsMatchIn(fileNameWithoutExt) -> {
-                // Replace trailing digits with placeholder
-                numberPattern.replace(fileNameWithoutExt, "{NUM}")
-            }
-            pagePattern.containsMatchIn(fileNameWithoutExt) -> {
-                // Replace "Page" with placeholder
-                pagePattern.replace(fileNameWithoutExt, "{NUM}")
-            }
-            else -> {
-                // No pattern found, append number
-                "$fileNameWithoutExt{NUM}"
-            }
-        }
-
-        println("[KdtScans] Base template: $baseTemplate")
-
-        // Sequential image loading with 404 detection
-        val pages = mutableListOf<MangaPage>()
-        var imageIndex = 1
-        var consecutive404s = 0
-        val maxConsecutive404s = 3
-
-        println("[KdtScans] Starting sequential image loading...")
-
-        while (imageIndex <= 500) {
-            val imageFileName = baseTemplate.replace("{NUM}", imageIndex.toString())
-            val imageUrl = "$basePath$imageFileName$extension"
-
-            try {
-                // Try to fetch the image
-                val response = webClient.httpHead(imageUrl)
-                val statusCode = response.code
-
-                if (statusCode == 404) {
-                    consecutive404s++
-                    println("[KdtScans] Image $imageIndex: 404 (consecutive: $consecutive404s)")
-                    // Stop if we get too many consecutive 404s
-                    if (consecutive404s >= maxConsecutive404s) {
-                        println("[KdtScans] Reached $maxConsecutive404s consecutive 404s, stopping")
-                        break
-                    }
-                } else if (response.isSuccessful) {
-                    // Reset counter on successful response
-                    consecutive404s = 0
-                    println("[KdtScans] Image $imageIndex: SUCCESS ($statusCode)")
-                    pages.add(
-                        MangaPage(
-                            id = generateUid(imageUrl),
-                            url = imageUrl,
-                            preview = null,
-                            source = source,
-                        )
-                    )
-                } else {
-                    // For other errors (403, 500, etc), treat as potential image
-                    consecutive404s = 0
-                    println("[KdtScans] Image $imageIndex: Other status $statusCode (treating as valid)")
-                    pages.add(
-                        MangaPage(
-                            id = generateUid(imageUrl),
-                            url = imageUrl,
-                            preview = null,
-                            source = source,
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                // Handle NotFoundException and other exceptions
-                if (e.message?.contains("404") == true || e.javaClass.simpleName.contains("NotFound")) {
-                    consecutive404s++
-                    println("[KdtScans] Image $imageIndex: 404 (Exception, consecutive: $consecutive404s)")
-                    if (consecutive404s >= maxConsecutive404s) {
-                        println("[KdtScans] Reached $maxConsecutive404s consecutive 404s, stopping")
-                        break
-                    }
-                } else {
-                    println("[KdtScans] Image $imageIndex: Exception - ${e.message}")
-                    consecutive404s++
-                    if (consecutive404s >= maxConsecutive404s) {
-                        println("[KdtScans] Reached $maxConsecutive404s consecutive errors, stopping")
-                        break
-                    }
-                }
-            }
-
-            imageIndex++
-        }
-
-        println("[KdtScans] Finished loading. Found ${pages.size} pages")
-        return pages
     }
 
     private fun parseStatus(status: String): MangaState? {
