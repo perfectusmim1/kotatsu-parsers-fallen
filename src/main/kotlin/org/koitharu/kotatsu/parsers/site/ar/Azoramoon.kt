@@ -78,48 +78,23 @@ internal class Azoramoon(context: MangaLoaderContext) :
 			}
 		}
 
-		println("[Azoramoon] Request URL: $url")
-
 		val response = webClient.httpGet(url)
 		val body = response.body.string()
 
-		println("[Azoramoon] Response code: ${response.code}")
-		println("[Azoramoon] Response body length: ${body.length}")
-		println("[Azoramoon] Response body preview (first 500 chars): ${body.take(500)}")
-
 		// Try to parse as JSONArray first (API returns direct array)
 		val jsonArray = try {
-			val arr = JSONArray(body)
-			println("[Azoramoon] Successfully parsed as JSONArray with ${arr.length()} items")
-			arr
+			JSONArray(body)
 		} catch (e: Exception) {
-			println("[Azoramoon] Failed to parse as JSONArray: ${e.message}")
 			// If that fails, try as JSONObject and extract array
 			try {
 				val jsonObject = JSONObject(body)
-				val arr = when {
-					jsonObject.has("posts") -> {
-						println("[Azoramoon] Found 'posts' field in JSONObject")
-						jsonObject.getJSONArray("posts")
-					}
-					jsonObject.has("data") -> {
-						println("[Azoramoon] Found 'data' field in JSONObject")
-						jsonObject.getJSONArray("data")
-					}
-					jsonObject.has("results") -> {
-						println("[Azoramoon] Found 'results' field in JSONObject")
-						jsonObject.getJSONArray("results")
-					}
-					else -> {
-						println("[Azoramoon] No 'posts', 'data' or 'results' field found")
-						println("[Azoramoon] Available keys: ${jsonObject.keys().asSequence().toList()}")
-						JSONArray()
-					}
+				when {
+					jsonObject.has("posts") -> jsonObject.getJSONArray("posts")
+					jsonObject.has("data") -> jsonObject.getJSONArray("data")
+					jsonObject.has("results") -> jsonObject.getJSONArray("results")
+					else -> JSONArray()
 				}
-				println("[Azoramoon] Extracted array with ${arr.length()} items")
-				arr
 			} catch (e2: Exception) {
-				println("[Azoramoon] Failed to parse as JSONObject: ${e2.message}")
 				JSONArray()
 			}
 		}
@@ -128,7 +103,6 @@ internal class Azoramoon(context: MangaLoaderContext) :
 	}
 
 	private fun parseMangaList(json: JSONArray): List<Manga> {
-		println("[Azoramoon] Parsing manga list with ${json.length()} items")
 		val result = mutableListOf<Manga>()
 
 		for (i in 0 until json.length()) {
@@ -137,8 +111,6 @@ internal class Azoramoon(context: MangaLoaderContext) :
 			val url = "/series/$slug"
 			val title = obj.getString("postTitle")
 			val coverUrl = obj.optString("featuredImage")
-
-			println("[Azoramoon] Manga $i: $title (slug: $slug)")
 
 			// Parse status
 			val seriesStatus = obj.optString("seriesStatus", "")
@@ -184,7 +156,6 @@ internal class Azoramoon(context: MangaLoaderContext) :
 			)
 		}
 
-		println("[Azoramoon] Parsed ${result.size} manga from API")
 		return result
 	}
 
@@ -346,7 +317,6 @@ internal class Azoramoon(context: MangaLoaderContext) :
 
 		// Select all chapter links
 		val chapterLinks = doc.select("a[href*='/chapter-']")
-		println("[Azoramoon] Found ${chapterLinks.size} chapter links")
 
 		// Use a map to deduplicate by URL
 		val chaptersMap = mutableMapOf<String, MangaChapter>()
@@ -369,12 +339,6 @@ internal class Azoramoon(context: MangaLoaderContext) :
 				?: a.selectFirst("span.font-medium")?.text()
 				?: "الفصل $chapterNumber"
 
-			// Extract date from time element
-			val timeElement = a.selectFirst("time")
-			val dateText = timeElement?.attr("dateTime") ?: timeElement?.text()
-
-			println("[Azoramoon] Chapter: $chapterTitle (number: $chapterNumber, url: $url)")
-
 			chaptersMap[url] = MangaChapter(
 				id = generateUid(url),
 				title = chapterTitle,
@@ -382,7 +346,7 @@ internal class Azoramoon(context: MangaLoaderContext) :
 				volume = 0,
 				url = url,
 				scanlator = null,
-				uploadDate = 0, // Can't parse "8 days" format easily
+				uploadDate = 0,
 				branch = null,
 				source = source,
 			)

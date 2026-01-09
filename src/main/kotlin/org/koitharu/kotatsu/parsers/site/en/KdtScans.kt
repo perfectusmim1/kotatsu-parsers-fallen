@@ -239,7 +239,6 @@ internal class KdtScans(context: MangaLoaderContext) :
                 const images = document.querySelectorAll('img');
                 for (let img of images) {
                     if (img.src && img.src.includes('reen_wes.webp')) {
-                        console.log('[KdtScans] Found end marker reen_wes.webp, chapter complete');
                         return 'END_MARKER_FOUND';
                     }
                 }
@@ -251,7 +250,6 @@ internal class KdtScans(context: MangaLoaderContext) :
 
                 const elapsed = Date.now() - window.__kdtStartTime;
                 if (elapsed >= 10000) {
-                    console.log('[KdtScans] 10 seconds elapsed, finishing');
                     return 'TIMEOUT';
                 }
 
@@ -267,20 +265,15 @@ internal class KdtScans(context: MangaLoaderContext) :
             pageScript = pageScript
         )
 
-        println("[KdtScans] Loading chapter page and intercepting images from cdn.asdasdhg.com")
         val interceptedRequests = context.interceptWebViewRequests(fullUrl, config)
-
-        println("[KdtScans] Intercepted ${interceptedRequests.size} image requests")
 
         // Filter out the end marker image (reen_wes.webp)
         return interceptedRequests
             .filter { !it.url.contains("reen_wes.webp") }
             .map { request ->
-                val imageUrl = request.url
-                println("[KdtScans] Image: $imageUrl")
                 MangaPage(
-                    id = generateUid(imageUrl),
-                    url = imageUrl,
+                    id = generateUid(request.url),
+                    url = request.url,
                     preview = null,
                     source = source,
                 )
